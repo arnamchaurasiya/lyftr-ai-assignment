@@ -2,10 +2,10 @@
 set -e
 
 if [ ! -d "venv" ]; then
-  python3 -m venv venv
+  py -3 -m venv venv
 fi
 
-source venv/bin/activate
+source venv/Scripts/activate
 
 pip install -r requirements.txt
 playwright install chromium
