@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lyftr Scraper</title>
+</head>
+<body>
+<h2>Universal Website Scraper</h2>
+
+<input id="url" value="https://news.ycombinator.com/" size="50"/>
+<button onclick="run()">Scrape</button>
+
+<pre id="out"></pre>
+
+<script>
+async function run() {
+  const res = await fetch("/scrape", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({url: document.getElementById("url").value})
+  });
+  const data = await res.json();
+  document.getElementById("out").textContent = JSON.stringify(data, null, 2);
+}
+</script>
+</body>
+</html>
