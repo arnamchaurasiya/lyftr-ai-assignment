@@ -1,26 +1,78 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <title>Lyftr Scraper</title>
-</head>
-<body>
-<h2>Universal Website Scraper</h2>
+  <head>
+    <title>Lyftr Scraper</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      pre {
+        background: #f6f8fa;
+        padding: 12px;
+        border-radius: 6px;
+        max-height: 80vh;
+        overflow: auto;
+      }
+      button {
+        margin-top: 10px;
+        margin-right: 10px;
+      }
+    </style>
+  </head>
 
-<input id="url" value="https://news.ycombinator.com/" size="50"/>
-<button onclick="run()">Scrape</button>
+  <body>
+    <h2>Lyftr AI Universal Website Scraper</h2>
 
-<pre id="out"></pre>
+    <input id="url" value="https://news.ycombinator.com/" size="60" />
+    <button onclick="run()">Scrape</button>
+    <button id="downloadBtn" disabled>Download JSON</button>
 
-<script>
-async function run() {
-  const res = await fetch("/scrape", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({url: document.getElementById("url").value})
-  });
-  const data = await res.json();
-  document.getElementById("out").textContent = JSON.stringify(data, null, 2);
-}
-</script>
-</body>
+    <pre id="out"></pre>
+
+    <script>
+      let lastResult = null;
+
+      async function run() {
+        document.getElementById("out").textContent = "Scraping...";
+        document.getElementById("downloadBtn").disabled = true;
+
+        const res = await fetch("/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: document.getElementById("url").value,
+          }),
+        });
+
+        const data = await res.json();
+        lastResult = data;
+
+        document.getElementById("out").textContent = JSON.stringify(
+          data,
+          null,
+          2
+        );
+
+        document.getElementById("downloadBtn").disabled = false;
+      }
+
+      document.getElementById("downloadBtn").addEventListener("click", () => {
+        if (!lastResult) return;
+
+        const json = JSON.stringify(lastResult, null, 2);
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "scrape-result.json";
+        document.body.appendChild(a);
+        a.click();
+
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+    </script>
+  </body>
 </html>

@@ -1,10 +1,16 @@
 {
   "static_scraping": true,
   "js_rendering": true,
+
   "click_tabs": false,
-  "load_more_clicks": false,
-  "infinite_scroll": true,
-  "pagination_links": false,
+
+  "load_more_clicks": "conditional",
+  "infinite_scroll": "conditional",
+  "pagination_links": true,
+
   "noise_filtering": true,
-  "html_truncation": true
+  "html_truncation": true,
+
+  "strategy_detection": true,
+  "max_depth_control": true
 }

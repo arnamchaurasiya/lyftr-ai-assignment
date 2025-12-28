@@ -69,20 +69,70 @@ def parse_html(html, url):
 
     sections = []
     idx = 0
+    seen = set()
 
+    # Primary: landmark-based sections
     for tag in soup.find_all(["header", "main", "section", "article", "footer"]):
         section = build_section(tag, url, idx)
         if section:
-            sections.append(section)
-            idx += 1
+            key = section["label"]
+            if key not in seen:
+                sections.append(section)
+                seen.add(key)
+                idx += 1
 
-    # Fallback safety
-    if not sections and soup.body:
-        section = build_section(soup.body, url, 0)
-        if section:
-            sections.append(section)
+    # Fallback: heading-based grouping
+    if not sections:
+        for h in soup.find_all(["h1", "h2", "h3"]):
+            parent = h.parent
+            section = build_section(parent, url, idx)
+            if section:
+                key = section["label"]
+                if key not in seen:
+                    sections.append(section)
+                    seen.add(key)
+                    idx += 1
+
+    # Final safety net
+# Final safety: React / SPA content root
+    if not sections:
+        root = soup.find(id="__next") or soup.find("main") or soup.body
+        if root:
+            section = build_section(root, url, 0)
+            if section:
+                sections.append(section)
+
 
     return meta, sections
+
+
+##adding this function
+def follow_pagination(page, url, interactions, max_pages=3):
+    for i in range(1, max_pages):
+        try:
+            next_link = page.query_selector(
+                "a:has-text('More'), a:has-text('Next'), a:has-text('Older')"
+            )
+            if not next_link:
+                break
+
+            next_url = next_link.get_attribute("href")
+            if not next_url:
+                break
+
+            absolute = next_url if next_url.startswith("http") else url + next_url
+            page.goto(absolute, wait_until="domcontentloaded", timeout=30000)
+
+            interactions["pages"].append(absolute)
+        except:
+            break
+
+
+def find_next_page_static(soup, base_url):
+    more = soup.find("a", string=lambda s: s and s.lower() in ["more", "next", "older"])
+    if more and more.get("href"):
+        return urljoin(base_url, more["href"])
+    return None
 
 
 def scrape(url: str):
@@ -94,19 +144,43 @@ def scrape(url: str):
     try:
         r = httpx.get(url, timeout=10, follow_redirects=True)
         r.raise_for_status()
-        meta, sections = parse_html(r.text, url)
+        meta = {}
+        all_sections = []
+        pages = [url]
 
-        if sections and len(sections[0]["content"]["text"]) > 500:
+        current_url = url
+
+        for i in range(3):  # depth >= 3
+            r = httpx.get(current_url, timeout=10, follow_redirects=True)
+            r.raise_for_status()
+
+            soup = BeautifulSoup(r.text, "html.parser")
+            meta, sections = parse_html(r.text, current_url)
+
+            all_sections.extend(sections)
+
+            next_url = find_next_page_static(soup, current_url)
+            if not next_url:
+                break
+
+            pages.append(next_url)
+            current_url = next_url
+
+        interactions["pages"] = pages
+        interactions["clicks"].append("pagination: More/Next")
+
+        if all_sections:
             return {
                 "result": {
                     "url": url,
                     "scrapedAt": scraped_at,
                     "meta": meta,
-                    "sections": sections,
+                    "sections": all_sections,
                     "interactions": interactions,
                     "errors": errors,
                 }
             }
+
     except Exception as e:
         errors.append({"message": str(e), "phase": "static"})
 
@@ -117,11 +191,21 @@ def scrape(url: str):
             page = browser.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
+            # --- Scroll first ---
+            initial_height = page.evaluate("document.body.scrollHeight")
+
             for _ in range(3):
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_load_state("networkidle", timeout=5000)
+                page.wait_for_timeout(1500)
+
                 interactions["scrolls"] += 1
                 interactions["clicks"].append("window.scrollTo(bottom)")
+
+            final_height = page.evaluate("document.body.scrollHeight")
+
+            # --- Pagination fallback ONLY if scroll didn't load content ---
+            if final_height == initial_height:
+                follow_pagination(page, url, interactions)
 
             html = page.content()
             meta, sections = parse_html(html, url)
@@ -137,6 +221,7 @@ def scrape(url: str):
                     "errors": errors,
                 }
             }
+
     except Exception as e:
         errors.append({"message": str(e), "phase": "js"})
 
