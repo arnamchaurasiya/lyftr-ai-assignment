@@ -145,6 +145,7 @@ def find_next_page_static(soup, base_url):
     return None
 
 def scrape(url: str):
+    
     scraped_at = datetime.utcnow().isoformat() + "Z"
     interactions = {"clicks": [], "scrolls": 0, "pages": [url]}
     errors = []
@@ -177,20 +178,13 @@ def scrape(url: str):
         
         interactions["pages"] = visited_pages
         
-        # --- FIX: Renumber IDs for Static Sections ---
-        # Since we visited multiple pages, we might have duplicate "section-0"s.
-        final_static_sections = []
-        for i, sec in enumerate(all_sections):
-            sec["id"] = f"section-{i}"
-            final_static_sections.append(sec)
-        
         # Prepare valid result object
         static_success_obj = {
             "result": {
                 "url": url,
                 "scrapedAt": scraped_at,
                 "meta": meta,
-                "sections": final_static_sections, # <--- Use the renumbered list
+                "sections": all_sections,
                 "interactions": interactions,
                 "errors": errors,
             }
@@ -198,15 +192,17 @@ def scrape(url: str):
 
         # DECISION POINT:
         # If we have content AND depth >= 3, Static is sufficient. Return immediately.
-        if len(final_static_sections) > 0 and len(visited_pages) >= 3:
+        if len(all_sections) > 0 and len(visited_pages) >= 3:
             return static_success_obj
         
         # If we have content but NOT depth, save as backup and fall through to JS
-        if len(final_static_sections) > 0:
+        if len(all_sections) > 0:
             backup_result = static_success_obj
+            # Don't return yet! Go to JS.
 
     except Exception as e:
         errors.append({"message": f"Static phase failed: {str(e)}", "phase": "static"})
+        # If static fails, we definitely need JS.
 
     # ---- JS FALLBACK / ENHANCEMENT ----
     try:
@@ -214,7 +210,7 @@ def scrape(url: str):
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             
-            # Reset accumulators for JS phase
+            # Reset accumulators for JS phase to avoid duplicating static data
             js_sections = []
             js_pages = [url]
             js_interactions = {"clicks": [], "scrolls": 0, "pages": [url]}
@@ -233,13 +229,16 @@ def scrape(url: str):
             js_sections.extend(sections)
             
             # 2. Interactions (Load More / Next / Tabs)
+            # We look for common interactive elements to satisfy "Depth" requirement
             for _ in range(2):
                 try:
+                    # Generic selector for "Load More" buttons or "Next" links
+                    # Also looking for "Tab" roles often found in JS dashboards
                     next_loc = page.locator("button:has-text('Load more'), button:has-text('Show more'), a:has-text('Next'), a:has-text('More'), [role='tab']").first
                     
                     if next_loc.is_visible():
                          next_loc.click()
-                         page.wait_for_load_state("networkidle")
+                         page.wait_for_load_state("networkidle") # Wait for network to settle
                          page.wait_for_timeout(1500)
                          
                          curr_url = page.url
@@ -257,19 +256,19 @@ def scrape(url: str):
 
             js_interactions["pages"] = js_pages
             browser.close()
-
-            # --- FIX: Renumber IDs for JS Sections ---
-            final_js_sections = []
+                # In scrape function, before returning:
+            final_sections = []
             for i, sec in enumerate(js_sections):
-                sec["id"] = f"section-{i}" 
-                final_js_sections.append(sec)
+                sec["id"] = f"section-{i}" # Renumber them sequentially
+                final_sections.append(sec)
+
 
             return {
                 "result": {
                     "url": url,
                     "scrapedAt": scraped_at,
                     "meta": meta,
-                    "sections": final_js_sections, # <--- Use the renumbered list
+                    "sections": js_sections,
                     "interactions": js_interactions,
                     "errors": errors,
                 }
